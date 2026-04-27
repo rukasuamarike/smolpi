@@ -1,15 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
-	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/chromedp"
+	"github.com/PuerkitoBio/goquery"
 )
 
 type Element struct {
@@ -19,6 +21,8 @@ type Element struct {
 }
 
 const selector = `button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]`
+
+var keepAttrs = []string{"id", "class", "aria-label", "role", "href", "type", "name", "placeholder", "value"}
 
 func main() {
 	url := "https://example.com"
@@ -31,54 +35,64 @@ func main() {
 		chromeBin = "chromium"
 	}
 
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath(chromeBin),
-		chromedp.Flag("headless", true),
-		chromedp.Flag("no-sandbox", true),
-		chromedp.Flag("disable-setuid-sandbox", true),
-		chromedp.Flag("disable-gpu", true),
-		chromedp.Flag("disable-dev-shm-usage", true),
-	)
-
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancel()
-
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel()
-
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var nodes []*cdp.Node
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(url),
-		chromedp.Sleep(2*time.Second),
-		chromedp.Nodes(selector, &nodes, chromedp.ByQueryAll),
-	)
-	if err != nil {
-		log.Fatalf("chromedp error: %v", err)
+	timeoutSec := 30
+	if t := os.Getenv("BROWSER_TIMEOUT"); t != "" {
+		fmt.Sscanf(t, "%d", &timeoutSec)
 	}
 
-	keep := []string{"id", "class", "aria-label", "role", "href", "type", "name", "placeholder", "value"}
-	elements := make([]Element, 0, len(nodes))
-	for _, n := range nodes {
-		attrs := make(map[string]string)
-		for i := 0; i+1 < len(n.Attributes); i += 2 {
-			for _, k := range keep {
-				if n.Attributes[i] == k {
-					attrs[k] = n.Attributes[i+1]
-				}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, chromeBin,
+		"--headless",
+		"--no-sandbox",
+		"--disable-setuid-sandbox",
+		"--disable-dev-shm-usage",
+		"--disable-gpu",
+		"--virtual-time-budget=5000",
+		"--dump-dom",
+		url,
+	)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = nil
+
+	if err := cmd.Run(); err != nil {
+		log.Fatalf("chromium failed: %v", err)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(&stdout)
+	if err != nil {
+		log.Fatalf("html parse failed: %v", err)
+	}
+
+	elements := []Element{}
+	doc.Find(selector).Each(func(i int, s *goquery.Selection) {
+		node := s.Get(0)
+		if node == nil {
+			return
+		}
+
+		attrs := map[string]string{}
+		for _, k := range keepAttrs {
+			if v, ok := s.Attr(k); ok && v != "" {
+				attrs[k] = v
 			}
 		}
-		el := Element{
-			Tag:   n.LocalName,
+
+		text := strings.TrimSpace(s.Text())
+		text = strings.Join(strings.Fields(text), " ")
+		if len(text) > 200 {
+			text = text[:200] + "…"
+		}
+
+		elements = append(elements, Element{
+			Tag:   node.Data,
+			Text:  text,
 			Attrs: attrs,
-		}
-		if len(n.Children) > 0 && n.Children[0].NodeType == cdp.NodeTypeText {
-			el.Text = n.Children[0].NodeValue
-		}
-		elements = append(elements, el)
-	}
+		})
+	})
 
 	out, _ := json.MarshalIndent(elements, "", "  ")
 	fmt.Println(string(out))
