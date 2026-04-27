@@ -97,7 +97,7 @@ machine-up: build-go
 	@if smolvm machine status --name $(VM_NAME) >/dev/null 2>&1; then \
 		echo "Machine $(VM_NAME) already exists. Use 'make machine-down' first to recreate."; \
 	else \
-		smolvm machine create -s Smolfile --name $(VM_NAME); \
+		smolvm machine create -s Smolfile $(VM_NAME); \
 		echo "Created machine $(VM_NAME)"; \
 	fi
 	smolvm machine start --name $(VM_NAME)
@@ -111,7 +111,7 @@ machine-run:
 
 machine-down:
 	-smolvm machine stop --name $(VM_NAME) 2>/dev/null
-	-smolvm machine delete $(VM_NAME) 2>/dev/null
+	-smolvm machine delete -f $(VM_NAME) 2>/dev/null
 
 # ── Cleanup ──────────────────────────────────────────────────
 clean:
