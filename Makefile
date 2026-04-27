@@ -94,8 +94,8 @@ build-go:
 		go build -ldflags="-s -w" -o ../bin/browser_skill browser_skill.go
 
 machine-up: build-go
-	@if smolvm machine status --name $(VM_NAME) >/dev/null 2>&1; then \
-		echo "Machine $(VM_NAME) already exists. Use 'make machine-down' first to recreate."; \
+	@if smolvm machine ls 2>/dev/null | grep -q '$(VM_NAME)'; then \
+		echo "Machine $(VM_NAME) already exists, starting..."; \
 	else \
 		smolvm machine create -s Smolfile $(VM_NAME); \
 		echo "Created machine $(VM_NAME)"; \
