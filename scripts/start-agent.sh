@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+export LLM_URL="${LLM_URL:-http://172.16.0.1:8080}"
+export LLM_MODEL="${LLM_MODEL:-gemma-4}"
+export BROWSER_BIN="${BROWSER_BIN:-/app/bin/browser_skill}"
+
+echo "── pi-agent-smol ──"
+echo "  LLM_URL:     ${LLM_URL}"
+echo "  LLM_MODEL:   ${LLM_MODEL}"
+echo "  BROWSER_BIN: ${BROWSER_BIN}"
+echo ""
+
+exec bun run /app/agent/index.ts

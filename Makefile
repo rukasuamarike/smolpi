@@ -110,7 +110,7 @@ machine-exec:
 	smolvm machine exec --name $(VM_NAME) -it -- /bin/bash
 
 machine-run:
-	smolvm machine exec --name $(VM_NAME) -- bun run /app/agent/index.ts
+	smolvm machine exec --name $(VM_NAME) -it -- sh /app/scripts/start-agent.sh
 
 machine-down:
 	-smolvm machine stop --name $(VM_NAME) 2>/dev/null
