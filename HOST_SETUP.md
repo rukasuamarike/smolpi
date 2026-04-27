@@ -122,10 +122,30 @@ sudo cp build/bin/llama-server /usr/local/bin/
 ### Download a model
 
 ```bash
-# Example: Gemma 2 2B (Q4_K_M quantization, ~1.5GB)
+# Gemma 4 E4B (4-bit, ~2.7GB) — fits iPhone 13+ and MacBook Pro M4
 mkdir -p ~/models
-curl -L -o ~/models/gemma-2-2b-Q4_K_M.gguf \
-  "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf"
+
+# Q4_K_M — best balance of quality and size for Apple Silicon / iPhone
+curl -L -o ~/models/gemma-4-E4B-it-Q4_K_M.gguf \
+  "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf"
+
+# Q2_K — smaller (~1.5GB), better for iPhone 13/14 with tighter RAM
+curl -L -o ~/models/gemma-4-E4B-it-Q2_K.gguf \
+  "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q2_K.gguf"
+```
+
+**Recommended quants by device:**
+
+```
+┌────────────────┬────────┬────────┬──────────────────────────────────────────┐
+│     Device     │ Quant  │ ~Size  │                  Notes                   │
+├────────────────┼────────┼────────┼──────────────────────────────────────────┤
+│ MacBook Pro M4 │ Q4_K_M │ ~2.7GB │ Full speed via Metal, plenty of headroom │
+├────────────────┼────────┼────────┼──────────────────────────────────────────┤
+│ iPhone 15 Pro+ │ Q4_K_M │ ~2.7GB │ 8GB RAM, fits comfortably                │
+├────────────────┼────────┼────────┼──────────────────────────────────────────┤
+│ iPhone 13/14   │ Q2_K   │ ~1.5GB │ 4-6GB RAM, tighter margins               │
+└────────────────┴────────┴────────┴──────────────────────────────────────────┘
 ```
 
 ### Run
@@ -134,7 +154,7 @@ curl -L -o ~/models/gemma-2-2b-Q4_K_M.gguf \
 llama-server \
   --host 0.0.0.0 \
   --port 8080 \
-  --model ~/models/gemma-2-2b-Q4_K_M.gguf \
+  --model ~/models/gemma-4-E4B-it-Q4_K_M.gguf \
   --ctx-size 4096 \
   --n-gpu-layers 99
 ```

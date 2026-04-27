@@ -1,5 +1,5 @@
 const LLM_URL = process.env.LLM_URL ?? "http://172.16.0.1:8080/v1/chat/completions";
-const MODEL = process.env.LLM_MODEL ?? "gemma-2";
+const MODEL = process.env.LLM_MODEL ?? "gemma-4";
 const BROWSER_BIN = process.env.BROWSER_BIN ?? "/usr/local/bin/browser_skill";
 
 interface Message {
