@@ -1,27 +1,14 @@
 #!/bin/bash
-# Step-by-step chromium debug. Each line prints what it's about to do.
-
 LOG=/tmp/chr.log
 PORT=9222
 
 step() { echo ""; echo "==> $1"; }
 
-step "1. Memory"
-free -h
-
-step "2. Disk usage"
-df -h /tmp /
-
-step "3. Kill any leftover chromium"
-pgrep -x chromium && pkill -9 -x chromium
+step "1. Kill leftovers"
+pkill -9 -x chromium 2>/dev/null
 sleep 1
-echo "    done"
 
-step "4. Remove old log"
-rm -f "$LOG"
-echo "    done"
-
-step "5. Launch chromium (background)"
+step "2. Launch chromium"
 chromium --headless \
     --no-sandbox \
     --disable-setuid-sandbox \
@@ -32,41 +19,37 @@ chromium --headless \
 CHR_PID=$!
 echo "    PID: $CHR_PID"
 
-step "6. Sleep 5s"
+step "3. Wait 5s"
 sleep 5
-echo "    awake"
 
-step "7. Is chromium still alive?"
-if kill -0 $CHR_PID 2>/dev/null; then
-    echo "    ALIVE (PID $CHR_PID)"
+step "4. Is chromium alive?"
+kill -0 $CHR_PID 2>/dev/null && echo "    yes" || echo "    DEAD"
+
+step "5. Full /proc/net/tcp (IPv4)"
+cat /proc/net/tcp
+
+step "6. Full /proc/net/tcp6 (IPv6)"
+cat /proc/net/tcp6
+
+step "7. Test TCP with bash /dev/tcp"
+exec 3<>/dev/tcp/127.0.0.1/$PORT 2>/dev/null && {
+    echo "    /dev/tcp connect: OK"
+    echo -e "GET /json/version HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3
+    echo "    Reading response (3s timeout)..."
+    timeout 3 cat <&3
+    exec 3<&-
+} || echo "    /dev/tcp connect: FAILED"
+
+step "8. nc test (if available)"
+if command -v nc >/dev/null; then
+    echo "GET /json/version HTTP/1.0" | timeout 3 nc -w 2 127.0.0.1 $PORT
 else
-    echo "    DEAD"
+    echo "    (nc not installed)"
 fi
 
-step "8. Process tree"
-pgrep -ax chromium || echo "    no chromium processes"
+step "9. Log devtools line"
+grep -i 'devtools listening' "$LOG"
 
-step "9. /proc/net/tcp listening (port 9222 = 2406 hex)"
-awk 'NR>1 && $4=="0A" && $2 ~ /:2406$/ {print "    IPv4 listening: "$2}' /proc/net/tcp
-awk 'NR>1 && $4=="0A" && $2 ~ /:2406$/ {print "    IPv6 listening: "$2}' /proc/net/tcp6
-echo "    (no match above = nothing on 9222)"
-
-step "10. Log (devtools line + last 5 errors)"
-grep -i 'devtools listening' "$LOG" || echo "    NO 'DevTools listening' line in log"
-echo "    --- last 5 non-noise lines ---"
-grep -v 'dbus\|gcm\|UPower\|NameHasOwner' "$LOG" | tail -5
-
-step "11a. curl /json/version (HTTP)"
-timeout 5 curl -sv "http://127.0.0.1:$PORT/json/version" 2>&1 | head -15
-
-step "11b. WebSocket upgrade test"
-timeout 5 curl -sv \
-    -H "Connection: Upgrade" \
-    -H "Upgrade: websocket" \
-    -H "Sec-WebSocket-Version: 13" \
-    -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
-    "http://127.0.0.1:$PORT/" 2>&1 | head -15
-
-step "12. Cleanup"
-pkill -9 -x chromium
+step "10. Cleanup"
+pkill -9 -x chromium 2>/dev/null
 echo "    done"
