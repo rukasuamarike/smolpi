@@ -15,11 +15,5 @@ volumes = [
     "./agent:/app/agent",
     "./browser:/app/browser",
     "./bin:/app/bin:ro",
-]
-ports = []
-init = [
-    # Entropy fix for WSL2/MicroVM
-    "sh -c 'command -v haveged >/dev/null && haveged -w 1024 || true'",
-    # Install core tools on first start (persists across exec sessions)
-    "sh -c 'which bun >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends ca-certificates curl chromium haveged neovim fzf ripgrep btop libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 && rm -rf /var/lib/apt/lists/* && curl -fsSL https://bun.sh/install | bash && ln -sf /root/.bun/bin/bun /usr/local/bin/bun)'",
+    "./scripts:/app/scripts:ro",
 ]

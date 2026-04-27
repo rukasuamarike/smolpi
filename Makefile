@@ -12,7 +12,7 @@ VM_NAME     := pi-agent-dev
 
 # ── Build ────────────────────────────────────────────────────
 .PHONY: build build-go run pack clean test-chromium test-go-binary test-tar test-smol-net \
-        registry-up registry-down machine-up machine-down machine-exec machine-run
+        registry-up registry-down machine-up machine-init machine-down machine-exec machine-run
 
 build:
 	docker buildx build --platform linux/$(ARCH) \
@@ -102,6 +102,9 @@ machine-up: build-go
 	fi
 	smolvm machine start --name $(VM_NAME)
 	@echo "Machine $(VM_NAME) is running. Use 'make machine-exec' for a shell."
+
+machine-init:
+	smolvm machine exec --name $(VM_NAME) --stream -- sh /app/scripts/guest-setup.sh
 
 machine-exec:
 	smolvm machine exec --name $(VM_NAME) -it -- /bin/bash
