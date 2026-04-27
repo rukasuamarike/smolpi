@@ -1,4 +1,4 @@
-const LLM_BASE = process.env.LLM_URL ?? "http://localhost:8080";
+const LLM_BASE = process.env.LLM_URL ?? "http://127.0.0.1:8080";
 const LLM_URL = LLM_BASE.replace(/\/+$/, "") + "/v1/chat/completions";
 const MODEL = process.env.LLM_MODEL ?? "gemma-4";
 const BROWSER_BIN = process.env.BROWSER_BIN ?? "/usr/local/bin/browser_skill";
