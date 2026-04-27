@@ -4,3 +4,4 @@ pi-agent.smolmachine
 *.smol
 node_modules/
 bin/
+.pi/APPEND_SYSTEM.md

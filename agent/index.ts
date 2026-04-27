@@ -1,11 +1,66 @@
+import {
+  activeCapabilities,
+  GROUP_ORDER,
+  GROUP_TITLES,
+  type Capability,
+} from "./capabilities";
+
 const LLM_BASE = process.env.LLM_URL ?? "http://127.0.0.1:8080";
 const LLM_URL = LLM_BASE.replace(/\/+$/, "") + "/v1/chat/completions";
 const MODEL = process.env.LLM_MODEL ?? "gemma-4";
 const BROWSER_BIN = process.env.BROWSER_BIN ?? "/usr/local/bin/browser_skill";
+const APPEND_PATH = process.env.APPEND_SYSTEM_PATH ?? "/app/.pi/APPEND_SYSTEM.md";
 
 interface Message {
   role: "system" | "user" | "assistant";
   content: string;
+}
+
+async function generatePrompt(): Promise<string> {
+  const active = await activeCapabilities();
+
+  const groups = new Map<string, Capability[]>();
+  for (const cap of active) {
+    const list = groups.get(cap.group) ?? [];
+    list.push(cap);
+    groups.set(cap.group, list);
+  }
+
+  const lines: string[] = [];
+  lines.push("You are a Pi Coding Agent running inside a Debian MicroVM.");
+  lines.push("You have access to a high-performance Linux toolkit. Prefer these over basic ls/cat for speed.");
+  lines.push("");
+
+  for (const g of GROUP_ORDER) {
+    const caps = groups.get(g);
+    if (!caps?.length) continue;
+    lines.push(`### ${GROUP_TITLES[g]}`);
+    for (const cap of caps) {
+      lines.push(`- ${cap.snippet}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("Emit shell commands as [sh:COMMAND] and URLs as [browse:URL].");
+  lines.push("Respond with one action per turn, or [done] when finished.");
+  lines.push("");
+  lines.push("---");
+  lines.push(`Current Time: ${new Date().toISOString()}`);
+  lines.push(`PWD: ${process.cwd()}`);
+  lines.push(`OS: ${process.platform} ${process.arch}`);
+
+  // Project-specific override
+  const appendFile = Bun.file(APPEND_PATH);
+  if (await appendFile.exists()) {
+    const extra = (await appendFile.text()).trim();
+    if (extra) {
+      lines.push("");
+      lines.push("---");
+      lines.push(extra);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 async function llm(messages: Message[]): Promise<string> {
@@ -56,16 +111,7 @@ async function shell(cmd: string): Promise<string> {
 async function agentLoop() {
   const systemPrompt: Message = {
     role: "system",
-    content: `You are a Pi Coding Agent. You have access to a high-performance Linux toolkit.
-
-- Use rg for searching text.
-- Use fd for finding files.
-- Use bat to read files with context.
-- Use z to jump between projects.
-- Always prioritize these over basic ls or cat for speed.
-
-Emit shell commands as [sh:COMMAND] and URLs as [browse:URL].
-Respond with one action per turn, or [done] when finished.`,
+    content: await generatePrompt(),
   };
 
   const messages: Message[] = [systemPrompt];
@@ -77,9 +123,10 @@ Respond with one action per turn, or [done] when finished.`,
   const prompt = (q: string): Promise<string> =>
     new Promise((res) => reader.question(q, res));
 
+  const active = await activeCapabilities();
   console.log(`Connecting to LLM at: ${LLM_URL}`);
   console.log(`Model: ${MODEL}`);
-  console.log(`Browser: ${BROWSER_BIN}`);
+  console.log(`Capabilities (${active.length}): ${active.map((c) => c.name).join(", ")}`);
   console.log("pi-agent-smol ready. Type a task or 'exit'.");
 
   while (true) {

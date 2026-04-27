@@ -1,0 +1,13 @@
+## Project Notes
+
+Copy this file to `APPEND_SYSTEM.md` (drop the `.example` suffix) and edit
+to inject project-specific guidance into the agent's system prompt.
+
+Anything you put here is appended to the auto-generated prompt at runtime.
+
+Examples:
+
+- Mention key directories the agent should know about
+- Describe the current task or codebase
+- Add custom action patterns the agent should prefer
+- Reference internal docs or APIs
