@@ -1,8 +1,12 @@
 # Host Setup — pi-agent-smol
 
-Everything needed to build and run this project on a fresh Ubuntu/WSL2 host.
+Everything needed to build and run this project on a fresh host.
 
-Tested on: Ubuntu 24.04 (WSL2), x86_64.
+Tested on:
+- Ubuntu 24.04 (WSL2), x86_64 — primary dev target
+- macOS 14+ on Apple Silicon (M1–M4) — for `llama-server` only; smolvm guests run on Linux hosts
+
+Linux/WSL2 sections cover Docker, smolvm, libkrun, etc. Mac users primarily need section 5 (llama-server) — smolvm itself currently targets Linux.
 
 ---
 
@@ -165,13 +169,65 @@ sudo cp build/bin/llama-server /usr/local/bin/
 
 ### Build with GPU acceleration (CUDA / Metal / Vulkan / HIP)
 
-The default build is **CPU-only**. Without a GPU backend, `--n-gpu-layers` is silently ignored — the model loads to host RAM and runs on CPU. To verify a build's backends:
+> **Apple Silicon shortcut**: Metal is auto-enabled on macOS by default. The CPU-only build instructions above already produce a Metal-accelerated `llama-server` on M-series Macs. Skip ahead to "Apple Silicon (Metal)" for prereqs and verification.
+
+On Linux/WSL2 the default build is **CPU-only**. Without a GPU backend, `--n-gpu-layers` is silently ignored — the model loads to host RAM and runs on CPU. To verify any build's backends:
 
 ```bash
 ./build/bin/llama-server --list-devices
 # CPU-only build shows just "CPU"
 # CUDA build shows e.g. "CUDA0 - NVIDIA GeForce RTX 4090 (...)"
+# Metal build shows e.g. "Metal - Apple M4 Pro"
 ```
+
+#### Apple Silicon (Metal) — macOS
+
+Apple Silicon Macs (M1 / M2 / M3 / M4) get GPU offload "for free" — llama.cpp detects Metal at build time and enables it unless explicitly disabled.
+
+> **Terminology**: llama.cpp uses **Metal** directly (low-level GPU API), not **MPS** (Metal Performance Shaders, which is the higher-level PyTorch/MLX layer). When llama.cpp says "GPU offload to Metal" that's the right thing — you do not need MPS or MLX installed.
+
+Prereqs:
+
+```bash
+# Xcode Command Line Tools (provides clang, make, etc.)
+xcode-select --install
+
+# Homebrew (if not already installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# cmake
+brew install cmake
+```
+
+Build (Metal auto-enabled — no flag needed):
+
+```bash
+cd llama.cpp
+cmake -B build
+cmake --build build --config Release -j$(sysctl -n hw.ncpu)
+
+# Install
+sudo cp build/bin/llama-server /usr/local/bin/
+
+# Verify Metal is present
+llama-server --list-devices
+# Should show e.g.:
+#   Metal - Apple M4 Pro (54 GB)
+```
+
+To **disable** Metal (rare — debugging, comparing CPU perf):
+
+```bash
+cmake -B build -DGGML_METAL=OFF
+```
+
+Run with full GPU offload — Apple Silicon's unified memory means you can offload all layers as long as the model fits in your total RAM:
+
+```bash
+GPU_LAYERS=99 ./scripts/run-brain.sh
+```
+
+The MacBook Pro M4 (24 GB+) handles Gemma 4 E4B Q4_K_M (~2.7 GB) with `--n-gpu-layers 99` instantly — first token in well under a second.
 
 #### NVIDIA (CUDA) — WSL2 prerequisites
 
