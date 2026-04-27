@@ -22,22 +22,34 @@ type Element struct {
 
 type Output struct {
 	URL      string         `json:"url"`
+	Title    string         `json:"title,omitempty"`
 	Counts   map[string]int `json:"counts"`
 	Elements []Element      `json:"elements"`
 }
 
-const selector = `button, input, select, textarea, a, [role="button"], [role="link"], [role="tab"]`
+// Interactive controls + content tags (headings, code blocks, paragraphs)
+const selector = `button, input, select, textarea, a, ` +
+	`[role="button"], [role="link"], [role="tab"], ` +
+	`h1, h2, h3, h4, h5, h6, pre, p, li`
 
-// Drop id and class — bloat the JSON but rarely useful for an LLM
 var keepAttrs = []string{"aria-label", "role", "href", "type", "name", "placeholder", "value"}
 
-// Per-tag caps — interactive controls get more headroom, links trimmed hard
+// Per-tag caps tuned for ~5KB total output (Gemma 4 ctx friendly)
 var tagCaps = map[string]int{
-	"input":    30,
-	"button":   30,
-	"select":   30,
-	"textarea": 30,
+	"input":    20,
+	"button":   20,
+	"select":   20,
+	"textarea": 20,
 	"a":        15,
+	"h1":       3,
+	"h2":       12,
+	"h3":       20,
+	"h4":       10,
+	"h5":       5,
+	"h6":       5,
+	"pre":      8,
+	"p":        15,
+	"li":       30,
 }
 
 func envInt(key string, def int) int {
@@ -61,6 +73,8 @@ func main() {
 	}
 	timeoutSec := envInt("BROWSER_TIMEOUT", 30)
 	maxText := envInt("BROWSER_MAX_TEXT", 80)
+	// Code/paragraph blocks get a longer text budget than UI labels
+	maxLongText := envInt("BROWSER_MAX_LONG_TEXT", 400)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
@@ -91,6 +105,7 @@ func main() {
 
 	out := Output{
 		URL:      url,
+		Title:    strings.TrimSpace(doc.Find("title").First().Text()),
 		Counts:   map[string]int{},
 		Elements: []Element{},
 	}
@@ -113,9 +128,22 @@ func main() {
 			}
 		}
 
-		text := strings.Join(strings.Fields(s.Text()), " ")
-		if len(text) > maxText {
-			text = text[:maxText] + "…"
+		// pre tags preserve newlines (code blocks); others collapse whitespace
+		var text string
+		if tag == "pre" {
+			text = strings.TrimSpace(s.Text())
+		} else {
+			text = strings.Join(strings.Fields(s.Text()), " ")
+		}
+
+		// Content tags get the long budget; UI labels stay short
+		limit := maxText
+		switch tag {
+		case "h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "li":
+			limit = maxLongText
+		}
+		if len(text) > limit {
+			text = text[:limit] + "…"
 		}
 
 		// Skip noise: no text AND no semantic hint
@@ -131,6 +159,16 @@ func main() {
 		// For <a> tags: require visible text or aria-label (drop icon-only links)
 		if tag == "a" && text == "" && attrs["aria-label"] == "" {
 			return true
+		}
+
+		// For content tags: drop empty/very-short fragments
+		switch tag {
+		case "h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "li":
+			if len(text) < 3 {
+				return true
+			}
+			// Don't carry attrs on content tags — just text
+			attrs = nil
 		}
 
 		// Dedupe (same tag + text + label + href is one entry)
