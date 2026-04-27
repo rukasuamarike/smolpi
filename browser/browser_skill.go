@@ -31,13 +31,13 @@ const selector = `button, input, select, textarea, a, [role="button"], [role="li
 // Drop id and class — bloat the JSON but rarely useful for an LLM
 var keepAttrs = []string{"aria-label", "role", "href", "type", "name", "placeholder", "value"}
 
-// Per-tag caps — interactive controls get unlimited, links/decorative get trimmed
+// Per-tag caps — interactive controls get more headroom, links trimmed hard
 var tagCaps = map[string]int{
-	"input":    50,
-	"button":   50,
-	"select":   50,
-	"textarea": 50,
-	"a":        25,
+	"input":    30,
+	"button":   30,
+	"select":   30,
+	"textarea": 30,
+	"a":        15,
 }
 
 func envInt(key string, def int) int {
@@ -118,13 +118,18 @@ func main() {
 			text = text[:maxText] + "…"
 		}
 
-		// Skip noise: no text AND no semantic hint (label/placeholder/name/value)
+		// Skip noise: no text AND no semantic hint
 		hasSignal := text != "" ||
 			attrs["aria-label"] != "" ||
 			attrs["placeholder"] != "" ||
 			attrs["name"] != "" ||
 			attrs["value"] != ""
 		if !hasSignal {
+			return true
+		}
+
+		// For <a> tags: require visible text or aria-label (drop icon-only links)
+		if tag == "a" && text == "" && attrs["aria-label"] == "" {
 			return true
 		}
 
@@ -152,6 +157,8 @@ func main() {
 	})
 
 	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
+	if os.Getenv("BROWSER_PRETTY") == "1" {
+		enc.SetIndent("", "  ")
+	}
 	enc.Encode(out)
 }
