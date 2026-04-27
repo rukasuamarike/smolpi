@@ -90,13 +90,45 @@ smolvm --version   # should be v0.5.x+
 
 ### libkrun (MicroVM backend)
 
-smolvm bundles its own VM runtime. On most systems no separate libkrun install is needed — the `smolvm` binary is self-contained. If you hit missing library errors:
+smolvm bundles `libkrun` and `libkrunfw` in `~/.smolvm/lib/`. The `smolvm` wrapper script sets `LD_LIBRARY_PATH` so it finds them automatically. However, **packed binaries** (e.g. `./pi-agent`) do not — they link against the system library path.
+
+Install the bundled libs system-wide:
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get install -y libkrun0
+# Copy from smolvm's bundled libs
+sudo cp ~/.smolvm/lib/libkrun.so /usr/local/lib/libkrun.so.1.9.1
+sudo cp ~/.smolvm/lib/libkrunfw.so.5.3.0 /usr/local/lib/libkrunfw.so.5.3.0
 
-# Or build from source: https://github.com/containers/libkrun
+# Create symlinks
+sudo ln -sf /usr/local/lib/libkrun.so.1.9.1 /usr/local/lib/libkrun.so.1
+sudo ln -sf /usr/local/lib/libkrun.so.1.9.1 /usr/local/lib/libkrun.so
+sudo ln -sf /usr/local/lib/libkrunfw.so.5.3.0 /usr/local/lib/libkrunfw.so.5
+sudo ln -sf /usr/local/lib/libkrunfw.so.5.3.0 /usr/local/lib/libkrunfw.so
+
+# Update linker cache
+sudo ldconfig
+
+# Verify
+ldconfig -p | grep libkrun
+```
+
+#### Troubleshooting: `libkrun.so.1: cannot open shared object file`
+
+This error means the packed binary can't find libkrun in the system path.
+
+**Quick fix** (temporary, current shell only):
+
+```bash
+export LD_LIBRARY_PATH="$HOME/.smolvm/lib:$LD_LIBRARY_PATH"
+./pi-agent --help
+```
+
+**Permanent fix** (recommended):
+
+Run the `sudo cp`, `sudo ln -sf`, and `sudo ldconfig` commands above. Verify with:
+
+```bash
+./pi-agent --help   # should print usage, no library errors
 ```
 
 ---
@@ -151,15 +183,24 @@ curl -L -o ~/models/gemma-4-E4B-it-Q2_K.gguf \
 ### Run
 
 ```bash
-llama-server \
+# From the llama.cpp build directory:
+./llama-server \
+  -m ~/models/gemma-4-E4B-it-Q4_K_M.gguf \
   --host 0.0.0.0 \
   --port 8080 \
-  --model ~/models/gemma-4-E4B-it-Q4_K_M.gguf \
-  --ctx-size 4096 \
-  --n-gpu-layers 99
+  --ctx-size 4096
+
+# Or if installed to PATH:
+llama-server \
+  -m ~/models/gemma-4-E4B-it-Q4_K_M.gguf \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --ctx-size 4096
 ```
 
-The `--host 0.0.0.0` is mandatory. Without it, the server binds to `127.0.0.1` and the smolvm guest cannot connect.
+`--host 0.0.0.0` is **mandatory**. Without it, the server binds to `127.0.0.1` and the smolvm guest cannot connect.
+
+Add `--n-gpu-layers 99` if you have NVIDIA (CUDA build) or Apple Silicon (Metal auto-enabled).
 
 ### Verify from host
 
