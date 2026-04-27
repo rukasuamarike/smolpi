@@ -3,7 +3,7 @@ ARCH        ?= amd64
 FULL_TAG    := latest-$(ARCH)
 TAR_FILE    := $(IMAGE_NAME)-$(ARCH).tar
 PACK_BIN    := ./pi-agent
-HOST_GW     := 172.16.0.1
+HOST_GW     := localhost
 LLM_PORT    := 8080
 REG_PORT    := 5000
 REG_NAME    := smol-registry
@@ -12,7 +12,7 @@ VM_NAME     := pi-agent-dev
 
 # ── Build ────────────────────────────────────────────────────
 .PHONY: build build-go run pack clean test-chromium test-go-binary test-tar test-smol-net \
-        registry-up registry-down machine-up machine-init machine-snapshot machine-down machine-exec machine-run
+        registry-up registry-down machine-up machine-init machine-snapshot machine-down test-brain machine-exec machine-run
 
 build:
 	docker buildx build --platform linux/$(ARCH) \
@@ -115,6 +115,9 @@ machine-snapshot:
 	smolvm pack create --from-vm $(VM_NAME) -o $(PACK_BIN)
 	@echo "Snapshot saved: $(PACK_BIN).smolmachine"
 	@echo "Future 'make machine-up' will boot from this snapshot."
+
+test-brain:
+	smolvm machine exec --name $(VM_NAME) -- bun run /app/scripts/test-connection.ts
 
 machine-exec:
 	smolvm machine exec --name $(VM_NAME) -it -- /bin/bash

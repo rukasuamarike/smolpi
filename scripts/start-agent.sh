@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-export LLM_URL="${LLM_URL:-http://172.16.0.1:8080}"
+export LLM_URL="${LLM_URL:-http://localhost:8080}"
 export LLM_MODEL="${LLM_MODEL:-gemma-4}"
 export BROWSER_BIN="${BROWSER_BIN:-/app/bin/browser_skill}"
 
