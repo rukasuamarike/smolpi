@@ -3,54 +3,20 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
+	readability "codeberg.org/readeck/go-readability/v2"
+	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/JohannesKaufmann/html-to-markdown/plugin"
 	"github.com/PuerkitoBio/goquery"
 )
-
-type Element struct {
-	Tag   string            `json:"tag"`
-	Text  string            `json:"text,omitempty"`
-	Attrs map[string]string `json:"attrs,omitempty"`
-}
-
-type Output struct {
-	URL      string         `json:"url"`
-	Title    string         `json:"title,omitempty"`
-	Counts   map[string]int `json:"counts"`
-	Elements []Element      `json:"elements"`
-}
-
-// Interactive controls + content tags (headings, code blocks, paragraphs)
-const selector = `button, input, select, textarea, a, ` +
-	`[role="button"], [role="link"], [role="tab"], ` +
-	`h1, h2, h3, h4, h5, h6, pre, p, li`
-
-var keepAttrs = []string{"aria-label", "role", "href", "type", "name", "placeholder", "value"}
-
-// Per-tag caps tuned for ~5KB total output (Gemma 4 ctx friendly)
-var tagCaps = map[string]int{
-	"input":    20,
-	"button":   20,
-	"select":   20,
-	"textarea": 20,
-	"a":        15,
-	"h1":       3,
-	"h2":       12,
-	"h3":       20,
-	"h4":       10,
-	"h5":       5,
-	"h6":       5,
-	"pre":      8,
-	"p":        15,
-	"li":       30,
-}
 
 func envInt(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
@@ -62,9 +28,9 @@ func envInt(key string, def int) int {
 }
 
 func main() {
-	url := "https://example.com"
+	pageURL := "https://example.com"
 	if len(os.Args) > 1 {
-		url = os.Args[1]
+		pageURL = os.Args[1]
 	}
 
 	chromeBin := os.Getenv("CHROME_BIN")
@@ -72,9 +38,7 @@ func main() {
 		chromeBin = "chromium"
 	}
 	timeoutSec := envInt("BROWSER_TIMEOUT", 30)
-	maxText := envInt("BROWSER_MAX_TEXT", 80)
-	// Code/paragraph blocks get a longer text budget than UI labels
-	maxLongText := envInt("BROWSER_MAX_LONG_TEXT", 400)
+	maxLen := envInt("BROWSER_MAX_OUTPUT", 8000)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
@@ -87,7 +51,7 @@ func main() {
 		"--disable-gpu",
 		"--virtual-time-budget=5000",
 		"--dump-dom",
-		url,
+		pageURL,
 	)
 
 	var stdout bytes.Buffer
@@ -98,105 +62,151 @@ func main() {
 		log.Fatalf("chromium failed: %v", err)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(&stdout)
+	html := stdout.Bytes()
+	parsedURL, _ := url.Parse(pageURL)
+
+	// Extract interactive elements from full page (readability would strip them)
+	interactive := extractInteractive(bytes.NewReader(html))
+
+	// Run readability on the same HTML for clean content
+	article, err := readability.FromReader(bytes.NewReader(html), parsedURL)
 	if err != nil {
-		log.Fatalf("html parse failed: %v", err)
+		log.Printf("readability failed: %v (falling back to interactive only)", err)
 	}
 
-	out := Output{
-		URL:      url,
-		Title:    strings.TrimSpace(doc.Find("title").First().Text()),
-		Counts:   map[string]int{},
-		Elements: []Element{},
+	// Convert article body to markdown via html-to-markdown
+	conv := md.NewConverter("", true, nil).Use(plugin.GitHubFlavored())
+	body := ""
+	if article.Node != nil {
+		var bodyHTML bytes.Buffer
+		if err := article.RenderHTML(&bodyHTML); err == nil {
+			body, err = conv.ConvertString(bodyHTML.String())
+			if err != nil {
+				log.Printf("md conversion failed: %v", err)
+			}
+			body = strings.TrimSpace(body)
+		}
 	}
 
-	type key struct{ tag, text, label, href string }
-	seen := map[key]bool{}
-	perTag := map[string]int{}
+	out := strings.Builder{}
+	title := strings.TrimSpace(article.Title())
+	if title != "" {
+		fmt.Fprintf(&out, "# %s\n\n", title)
+	}
+	fmt.Fprintf(&out, "Source: %s\n\n", pageURL)
 
-	doc.Find(selector).EachWithBreak(func(i int, s *goquery.Selection) bool {
+	if len(interactive) > 0 {
+		out.WriteString("## Interactive\n")
+		for _, line := range interactive {
+			out.WriteString("- " + line + "\n")
+		}
+		out.WriteString("\n")
+	}
+
+	if body != "" {
+		out.WriteString("## Content\n\n")
+		out.WriteString(body)
+		out.WriteString("\n")
+	} else {
+		out.WriteString("_(no readable content found)_\n")
+	}
+
+	final := out.String()
+	if len(final) > maxLen {
+		final = final[:maxLen] + "\n\n[truncated]"
+	}
+	fmt.Print(final)
+}
+
+// extractInteractive returns "[BUTTON: text]" / "[INPUT name=q ...]" / "[LINK text -> href]" lines
+// for buttons, inputs, and key links — capped per type.
+func extractInteractive(r *bytes.Reader) []string {
+	doc, err := goquery.NewDocumentFromReader(r)
+	if err != nil {
+		return nil
+	}
+
+	var lines []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		lines = append(lines, s)
+	}
+
+	caps := map[string]int{"button": 15, "input": 15, "a": 10, "select": 10, "textarea": 10}
+	count := map[string]int{}
+
+	doc.Find(`button, input, select, textarea, a, [role="button"], [role="link"]`).Each(func(_ int, s *goquery.Selection) {
 		node := s.Get(0)
 		if node == nil {
-			return true
+			return
 		}
 		tag := node.Data
-
-		attrs := map[string]string{}
-		for _, k := range keepAttrs {
-			if v, ok := s.Attr(k); ok && v != "" {
-				attrs[k] = v
-			}
+		if cap, ok := caps[tag]; ok && count[tag] >= cap {
+			return
 		}
 
-		// pre tags preserve newlines (code blocks); others collapse whitespace
-		var text string
-		if tag == "pre" {
-			text = strings.TrimSpace(s.Text())
-		} else {
-			text = strings.Join(strings.Fields(s.Text()), " ")
+		text := strings.Join(strings.Fields(s.Text()), " ")
+		if len(text) > 80 {
+			text = text[:80] + "…"
+		}
+		label, _ := s.Attr("aria-label")
+		display := text
+		if display == "" {
+			display = label
 		}
 
-		// Content tags get the long budget; UI labels stay short
-		limit := maxText
 		switch tag {
-		case "h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "li":
-			limit = maxLongText
-		}
-		if len(text) > limit {
-			text = text[:limit] + "…"
-		}
-
-		// Skip noise: no text AND no semantic hint
-		hasSignal := text != "" ||
-			attrs["aria-label"] != "" ||
-			attrs["placeholder"] != "" ||
-			attrs["name"] != "" ||
-			attrs["value"] != ""
-		if !hasSignal {
-			return true
-		}
-
-		// For <a> tags: require visible text or aria-label (drop icon-only links)
-		if tag == "a" && text == "" && attrs["aria-label"] == "" {
-			return true
-		}
-
-		// For content tags: drop empty/very-short fragments
-		switch tag {
-		case "h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "li":
-			if len(text) < 3 {
-				return true
+		case "button":
+			if display == "" {
+				return
 			}
-			// Don't carry attrs on content tags — just text
-			attrs = nil
+			count[tag]++
+			add(fmt.Sprintf("[BUTTON: %s]", display))
+		case "input":
+			t, _ := s.Attr("type")
+			if t == "hidden" {
+				return
+			}
+			name, _ := s.Attr("name")
+			ph, _ := s.Attr("placeholder")
+			parts := []string{}
+			if name != "" {
+				parts = append(parts, "name="+name)
+			}
+			if t != "" {
+				parts = append(parts, "type="+t)
+			}
+			if ph != "" {
+				parts = append(parts, fmt.Sprintf("placeholder=%q", ph))
+			}
+			if label != "" {
+				parts = append(parts, fmt.Sprintf("label=%q", label))
+			}
+			if len(parts) == 0 {
+				return
+			}
+			count[tag]++
+			add("[INPUT " + strings.Join(parts, " ") + "]")
+		case "select", "textarea":
+			name, _ := s.Attr("name")
+			if name == "" && label == "" {
+				return
+			}
+			count[tag]++
+			add(fmt.Sprintf("[%s name=%s label=%q]", strings.ToUpper(tag), name, label))
+		case "a":
+			href, _ := s.Attr("href")
+			if href == "" || href == "#" || display == "" {
+				return
+			}
+			count[tag]++
+			add(fmt.Sprintf("[LINK: %s -> %s]", display, href))
 		}
-
-		// Dedupe (same tag + text + label + href is one entry)
-		k := key{tag, text, attrs["aria-label"], attrs["href"]}
-		if seen[k] {
-			return true
-		}
-		seen[k] = true
-
-		// Per-tag cap
-		cap := tagCaps[tag]
-		if cap > 0 && perTag[tag] >= cap {
-			return true
-		}
-		perTag[tag]++
-		out.Counts[tag]++
-
-		out.Elements = append(out.Elements, Element{
-			Tag:   tag,
-			Text:  text,
-			Attrs: attrs,
-		})
-		return true
 	})
 
-	enc := json.NewEncoder(os.Stdout)
-	if os.Getenv("BROWSER_PRETTY") == "1" {
-		enc.SetIndent("", "  ")
-	}
-	enc.Encode(out)
+	return lines
 }
