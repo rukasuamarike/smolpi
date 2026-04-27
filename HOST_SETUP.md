@@ -137,12 +137,24 @@ Run the `sudo cp`, `sudo ln -sf`, and `sudo ldconfig` commands above. Verify wit
 
 The local LLM backend. Must listen on `0.0.0.0` so the smolvm guest can reach it via the host gateway (`172.16.0.1`).
 
-### Build from source
+### Get the source
+
+`llama.cpp` is vendored as a git submodule. If you cloned this repo without `--recurse-submodules`:
+
+```bash
+git submodule update --init --recursive
+```
+
+Otherwise, clone it standalone:
+
+```bash
+git clone https://github.com/ggerganov/llama.cpp.git
+```
+
+### Build (CPU-only — fastest to set up)
 
 ```bash
 sudo apt-get install -y build-essential cmake
-
-git clone https://github.com/ggerganov/llama.cpp.git
 cd llama.cpp
 cmake -B build
 cmake --build build --config Release -j$(nproc)
@@ -150,6 +162,53 @@ cmake --build build --config Release -j$(nproc)
 # Binary is at build/bin/llama-server
 sudo cp build/bin/llama-server /usr/local/bin/
 ```
+
+### Build with GPU acceleration (CUDA / Metal / Vulkan / HIP)
+
+The default build is **CPU-only**. Without a GPU backend, `--n-gpu-layers` is silently ignored — the model loads to host RAM and runs on CPU. To verify a build's backends:
+
+```bash
+./build/bin/llama-server --list-devices
+# CPU-only build shows just "CPU"
+# CUDA build shows e.g. "CUDA0 - NVIDIA GeForce RTX 4090 (...)"
+```
+
+#### NVIDIA (CUDA) — WSL2 prerequisites
+
+CUDA in WSL2 requires:
+1. Recent NVIDIA driver on **Windows** (not in WSL — WSL inherits it)
+2. CUDA toolkit installed in **WSL** (not Windows)
+
+Verify:
+
+```bash
+nvidia-smi                    # should show GPU + driver (works inside WSL)
+nvcc --version                # CUDA toolkit version
+```
+
+If `nvcc` is missing, install the CUDA toolkit for WSL-Ubuntu:
+<https://developer.nvidia.com/cuda-downloads> → Linux → WSL-Ubuntu
+
+#### Rebuild with the right backend
+
+```bash
+cd llama.cpp
+rm -rf build
+
+# Pick ONE of:
+cmake -B build -DGGML_CUDA=ON       # NVIDIA
+cmake -B build -DGGML_HIP=ON        # AMD
+cmake -B build -DGGML_VULKAN=ON     # Vulkan (cross-vendor)
+cmake -B build -DGGML_METAL=ON      # Apple Silicon (auto on macOS)
+
+cmake --build build --config Release -j$(nproc)
+sudo cp build/bin/llama-server /usr/local/bin/
+
+# Verify the backend is present
+llama-server --list-devices
+```
+
+`scripts/run-brain.sh` runs `--list-devices` automatically and refuses to pass `--n-gpu-layers` unless a GPU backend is detected — so you'll see a clear warning if a CPU-only build is still in place.
 
 ### Download a model
 
@@ -200,7 +259,7 @@ llama-server \
 
 `--host 0.0.0.0` is **mandatory**. Without it, the server binds to `127.0.0.1` and the smolvm guest cannot connect.
 
-Add `--n-gpu-layers 99` if you have NVIDIA (CUDA build) or Apple Silicon (Metal auto-enabled).
+Add `--n-gpu-layers 99` if you have a GPU build (see "Build with GPU acceleration" above). Or just use `GPU_LAYERS=99 ./scripts/run-brain.sh` — it auto-detects the backend.
 
 ### Verify from host
 
