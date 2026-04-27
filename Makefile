@@ -104,7 +104,8 @@ machine-up: build-go
 	@echo "Machine $(VM_NAME) is running. Use 'make machine-exec' for a shell."
 
 machine-init:
-	smolvm machine exec --name $(VM_NAME) --stream -- sh /app/scripts/guest-setup.sh
+	smolvm machine cp scripts/guest-setup.sh $(VM_NAME):/tmp/guest-setup.sh
+	smolvm machine exec --name $(VM_NAME) --stream -- sh /tmp/guest-setup.sh
 
 machine-exec:
 	smolvm machine exec --name $(VM_NAME) -it -- /bin/bash
