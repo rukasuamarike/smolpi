@@ -26,7 +26,13 @@ func main() {
 		url = os.Args[1]
 	}
 
+	chromeBin := os.Getenv("CHROME_BIN")
+	if chromeBin == "" {
+		chromeBin = "chromium"
+	}
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(chromeBin),
 		chromedp.Flag("headless", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-setuid-sandbox", true),
