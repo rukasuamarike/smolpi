@@ -21,6 +21,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip git \
     neovim fzf ripgrep btop \
+    bat fd-find jq \
+    cowsay sl \
     haveged \
     chromium \
     libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
@@ -28,6 +30,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrandr2 libgbm1 libasound2 libpango-1.0-0 \
     libcairo2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Debian renames bat→batcat, fd→fdfind; cowsay lives in /usr/games. Normalize all.
+RUN ln -sf /usr/bin/batcat /usr/local/bin/bat && \
+    ln -sf /usr/bin/fdfind /usr/local/bin/fd && \
+    ln -sf /usr/games/cowsay /usr/local/bin/cowsay && \
+    ln -sf /usr/games/sl /usr/local/bin/sl
 
 # Install Bun
 RUN curl -fsSL https://bun.sh/install | bash

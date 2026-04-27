@@ -93,6 +93,14 @@ export const capabilities: Capability[] = [
     check: "btop",
   },
   {
+    name: "cowsay",
+    group: "SYSTEM",
+    description: "ASCII speech-bubble — flair for announcements",
+    usage: "[sh:cowsay TEXT]",
+    snippet: "cowsay <text> — ASCII speech-bubble. Use sparingly, for celebrations or final reports.",
+    check: "cowsay",
+  },
+  {
     name: "sh",
     group: "SYSTEM",
     description: "arbitrary shell — escape hatch",

@@ -13,7 +13,8 @@ apt-get install -y --no-install-recommends \
     libxrandr2 libgbm1 libasound2 libpango-1.0-0 \
     libcairo2 \
     neovim fzf ripgrep btop haveged \
-    bat fd-find jq
+    bat fd-find jq \
+    cowsay sl
 rm -rf /var/lib/apt/lists/*
 
 echo "[3/5] Installing bun..."
@@ -29,9 +30,11 @@ if ! command -v zoxide >/dev/null 2>&1; then
 fi
 
 echo "[4/5] Linking Debian-renamed binaries..."
-# bat → batcat, fd → fdfind on Debian
+# bat → batcat, fd → fdfind on Debian; cowsay/sl live in /usr/games
 [ -x /usr/bin/batcat ] && ln -sf /usr/bin/batcat /usr/local/bin/bat
 [ -x /usr/bin/fdfind ] && ln -sf /usr/bin/fdfind /usr/local/bin/fd
+[ -x /usr/games/cowsay ] && ln -sf /usr/games/cowsay /usr/local/bin/cowsay
+[ -x /usr/games/sl ] && ln -sf /usr/games/sl /usr/local/bin/sl
 
 echo "[4.5/5] Configuring bash environment..."
 cat > /root/.bashrc.smol <<'EOF'
@@ -72,6 +75,8 @@ printf "  %-15s %s\n" "jq:"            "$(jq --version 2>/dev/null || echo 'MISS
 printf "  %-15s %s\n" "zoxide:"        "$(zoxide --version 2>/dev/null || echo 'MISSING')"
 printf "  %-15s %s\n" "nvim:"          "$(nvim --version 2>/dev/null | head -1 || echo 'MISSING')"
 printf "  %-15s %s\n" "btop:"          "$(command -v btop || echo 'MISSING')"
+printf "  %-15s %s\n" "cowsay:"        "$(command -v cowsay || echo 'MISSING')"
+printf "  %-15s %s\n" "sl:"            "$(command -v sl || echo 'MISSING')"
 printf "  %-15s %s\n" "browser_skill:" "$(ls /app/bin/browser_skill 2>/dev/null || echo 'MISSING')"
 printf "  %-15s %s\n" "agent:"         "$(ls /app/agent/index.ts 2>/dev/null || echo 'MISSING')"
 echo ""
