@@ -2,6 +2,12 @@ image = "debian:bookworm-slim"
 workdir = "/app"
 net = true
 
+# Right-size for host running llama-server alongside.
+# Memory is elastic (virtio balloon) — host backs it on demand.
+# Capping at 4 GiB leaves headroom for llama-server on the host.
+cpus = 2
+memory = 4096
+
 env = [
     "DEBIAN_FRONTEND=noninteractive",
     "LLM_URL=http://127.0.0.1:8080",
