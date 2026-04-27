@@ -12,7 +12,7 @@ VM_NAME     := pi-agent-dev
 
 # ── Build ────────────────────────────────────────────────────
 .PHONY: build build-go run pack clean test-chromium test-go-binary test-tar test-smol-net \
-        registry-up registry-down machine-up machine-init machine-down machine-exec machine-run
+        registry-up registry-down machine-up machine-init machine-snapshot machine-down machine-exec machine-run
 
 build:
 	docker buildx build --platform linux/$(ARCH) \
@@ -96,15 +96,25 @@ build-go:
 machine-up: build-go
 	@if smolvm machine ls 2>/dev/null | grep -q '$(VM_NAME)'; then \
 		echo "Machine $(VM_NAME) already exists, starting..."; \
+	elif [ -f $(PACK_BIN).smolmachine ]; then \
+		echo "Creating machine from snapshot..."; \
+		smolvm machine create $(VM_NAME) --from $(PACK_BIN).smolmachine; \
 	else \
+		echo "No snapshot found. Creating fresh machine from Smolfile..."; \
 		smolvm machine create -s Smolfile $(VM_NAME); \
-		echo "Created machine $(VM_NAME)"; \
+		echo "Run 'make machine-init' then 'make machine-snapshot' to cache."; \
 	fi
 	smolvm machine start --name $(VM_NAME)
-	@echo "Machine $(VM_NAME) is running. Use 'make machine-exec' for a shell."
+	@echo "Machine $(VM_NAME) is running."
 
 machine-init:
-	smolvm machine exec --name $(VM_NAME) -- sh /app/scripts/guest-setup.sh
+	smolvm machine exec --name $(VM_NAME) -it -- sh /app/scripts/guest-setup.sh
+
+machine-snapshot:
+	smolvm machine stop --name $(VM_NAME)
+	smolvm pack create --from-vm $(VM_NAME) -o $(PACK_BIN)
+	@echo "Snapshot saved: $(PACK_BIN).smolmachine"
+	@echo "Future 'make machine-up' will boot from this snapshot."
 
 machine-exec:
 	smolvm machine exec --name $(VM_NAME) -it -- /bin/bash
