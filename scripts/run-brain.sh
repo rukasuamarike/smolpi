@@ -76,19 +76,43 @@ else
     MODEL="${MODELS[$((choice-1))]}"
 fi
 
-# ── GPU reminder ─────────────────────────────────────────────
+# ── GPU backend detection ────────────────────────────────────
+# llama-server only honors --n-gpu-layers if compiled with a GPU backend.
+HAS_GPU_BACKEND=false
+DEVICE_OUTPUT=""
+if DEVICE_OUTPUT=$("$LLAMA_SERVER" --list-devices 2>&1); then
+    if echo "$DEVICE_OUTPUT" | grep -qiE 'cuda|metal|vulkan|hip|rocm|sycl'; then
+        HAS_GPU_BACKEND=true
+    fi
+fi
+
 echo ""
 echo "────────────────────────────────────────────────────"
-echo "  GPU ACCELERATION REMINDER"
-echo ""
-echo "  Add --n-gpu-layers N to offload layers to GPU:"
-echo ""
-echo "    NVIDIA : --n-gpu-layers 99  (requires CUDA build)"
-echo "    Apple  : --n-gpu-layers 99  (Metal is auto-enabled)"
-echo "    CPU    : omit the flag (default, slower)"
-echo ""
-echo "  Set GPU_LAYERS env var to add it automatically:"
-echo "    GPU_LAYERS=99 ./scripts/run-brain.sh"
+echo "  GPU BACKEND DETECTION"
+if $HAS_GPU_BACKEND; then
+    echo "  ✓ GPU backend available:"
+    echo "$DEVICE_OUTPUT" | sed 's/^/    /' | head -10
+else
+    echo "  ✗ No GPU backend in this llama-server build"
+    echo ""
+    echo "  Detected devices:"
+    echo "$DEVICE_OUTPUT" | sed 's/^/    /' | head -5
+    if [[ -n "${GPU_LAYERS:-}" ]]; then
+        echo ""
+        echo "  GPU_LAYERS=$GPU_LAYERS is set but will be IGNORED."
+        echo "  Rebuild llama.cpp with a GPU backend:"
+        echo ""
+        echo "    NVIDIA :  cmake -B build -DGGML_CUDA=ON"
+        echo "    AMD    :  cmake -B build -DGGML_HIP=ON"
+        echo "    Vulkan :  cmake -B build -DGGML_VULKAN=ON"
+        echo "    Apple  :  cmake -B build -DGGML_METAL=ON  (auto on macOS)"
+        echo ""
+        echo "    cmake --build build --config Release -j\$(nproc)"
+        echo ""
+        echo "  Then verify:"
+        echo "    \$LLAMA_SERVER --list-devices"
+    fi
+fi
 echo "────────────────────────────────────────────────────"
 echo ""
 
@@ -102,8 +126,12 @@ CMD=(
 )
 
 if [[ -n "${GPU_LAYERS:-}" ]]; then
-    CMD+=(--n-gpu-layers "$GPU_LAYERS")
-    echo "GPU offload: $GPU_LAYERS layers"
+    if $HAS_GPU_BACKEND; then
+        CMD+=(--n-gpu-layers "$GPU_LAYERS")
+        echo "GPU offload: $GPU_LAYERS layers"
+    else
+        echo "WARN: GPU_LAYERS=$GPU_LAYERS ignored — llama-server has no GPU backend (CPU only)"
+    fi
 fi
 
 echo "Starting: ${CMD[*]}"
