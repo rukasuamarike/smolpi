@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,9 +20,34 @@ type Element struct {
 	Attrs map[string]string `json:"attrs,omitempty"`
 }
 
-const selector = `button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"]`
+type Output struct {
+	URL      string         `json:"url"`
+	Counts   map[string]int `json:"counts"`
+	Elements []Element      `json:"elements"`
+}
 
-var keepAttrs = []string{"id", "class", "aria-label", "role", "href", "type", "name", "placeholder", "value"}
+const selector = `button, input, select, textarea, a, [role="button"], [role="link"], [role="tab"]`
+
+// Drop id and class — bloat the JSON but rarely useful for an LLM
+var keepAttrs = []string{"aria-label", "role", "href", "type", "name", "placeholder", "value"}
+
+// Per-tag caps — interactive controls get unlimited, links/decorative get trimmed
+var tagCaps = map[string]int{
+	"input":    50,
+	"button":   50,
+	"select":   50,
+	"textarea": 50,
+	"a":        25,
+}
+
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
 
 func main() {
 	url := "https://example.com"
@@ -34,11 +59,8 @@ func main() {
 	if chromeBin == "" {
 		chromeBin = "chromium"
 	}
-
-	timeoutSec := 30
-	if t := os.Getenv("BROWSER_TIMEOUT"); t != "" {
-		fmt.Sscanf(t, "%d", &timeoutSec)
-	}
+	timeoutSec := envInt("BROWSER_TIMEOUT", 30)
+	maxText := envInt("BROWSER_MAX_TEXT", 80)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
@@ -67,12 +89,22 @@ func main() {
 		log.Fatalf("html parse failed: %v", err)
 	}
 
-	elements := []Element{}
-	doc.Find(selector).Each(func(i int, s *goquery.Selection) {
+	out := Output{
+		URL:      url,
+		Counts:   map[string]int{},
+		Elements: []Element{},
+	}
+
+	type key struct{ tag, text, label, href string }
+	seen := map[key]bool{}
+	perTag := map[string]int{}
+
+	doc.Find(selector).EachWithBreak(func(i int, s *goquery.Selection) bool {
 		node := s.Get(0)
 		if node == nil {
-			return
+			return true
 		}
+		tag := node.Data
 
 		attrs := map[string]string{}
 		for _, k := range keepAttrs {
@@ -81,19 +113,45 @@ func main() {
 			}
 		}
 
-		text := strings.TrimSpace(s.Text())
-		text = strings.Join(strings.Fields(text), " ")
-		if len(text) > 200 {
-			text = text[:200] + "…"
+		text := strings.Join(strings.Fields(s.Text()), " ")
+		if len(text) > maxText {
+			text = text[:maxText] + "…"
 		}
 
-		elements = append(elements, Element{
-			Tag:   node.Data,
+		// Skip noise: no text AND no semantic hint (label/placeholder/name/value)
+		hasSignal := text != "" ||
+			attrs["aria-label"] != "" ||
+			attrs["placeholder"] != "" ||
+			attrs["name"] != "" ||
+			attrs["value"] != ""
+		if !hasSignal {
+			return true
+		}
+
+		// Dedupe (same tag + text + label + href is one entry)
+		k := key{tag, text, attrs["aria-label"], attrs["href"]}
+		if seen[k] {
+			return true
+		}
+		seen[k] = true
+
+		// Per-tag cap
+		cap := tagCaps[tag]
+		if cap > 0 && perTag[tag] >= cap {
+			return true
+		}
+		perTag[tag]++
+		out.Counts[tag]++
+
+		out.Elements = append(out.Elements, Element{
+			Tag:   tag,
 			Text:  text,
 			Attrs: attrs,
 		})
+		return true
 	})
 
-	out, _ := json.MarshalIndent(elements, "", "  ")
-	fmt.Println(string(out))
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(out)
 }
