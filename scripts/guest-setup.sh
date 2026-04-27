@@ -6,7 +6,7 @@ apt-get update
 
 echo "[2/4] Installing packages..."
 apt-get install -y --no-install-recommends \
-    ca-certificates curl \
+    ca-certificates curl unzip \
     chromium \
     libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
