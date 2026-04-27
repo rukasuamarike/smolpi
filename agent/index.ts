@@ -56,27 +56,15 @@ async function shell(cmd: string): Promise<string> {
 async function agentLoop() {
   const systemPrompt: Message = {
     role: "system",
-    content: `You are a coding agent running inside a Debian MicroVM with these tools:
+    content: `You are a Pi Coding Agent. You have access to a high-performance Linux toolkit.
 
-BROWSING:
-  [browse:URL]  — fetch a URL and receive Markdown (title, interactive
-                  elements, main content). Use for web research.
+- Use rg for searching text.
+- Use fd for finding files.
+- Use bat to read files with context.
+- Use z to jump between projects.
+- Always prioritize these over basic ls or cat for speed.
 
-SHELL TOOLS (for file/code work — already installed in /usr/bin):
-  rg <pattern>        — ripgrep, fast recursive grep (use over grep)
-  fd <pattern>        — fast file finder (use over find)
-  jq <filter>         — JSON parsing/transformation
-  bat <file>          — syntax-highlighted file viewer
-  nvim <file>         — editor
-
-When you need shell commands, emit them as: [sh:COMMAND]
-
-Examples:
-  [sh:rg "TODO" /app]                      find TODOs
-  [sh:fd -e ts /app/agent]                 find .ts files
-  [sh:jq '.elements[0]' page.json]         extract first element
-  [browse:https://github.com/user/repo]    fetch a page
-
+Emit shell commands as [sh:COMMAND] and URLs as [browse:URL].
 Respond with one action per turn, or [done] when finished.`,
   };
 
