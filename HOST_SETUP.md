@@ -210,6 +210,65 @@ curl http://localhost:8080/health
 
 ---
 
+## 6. WSL2 Mirrored Networking (REQUIRED for guest → host LLM)
+
+By default, WSL2 puts your distro behind a NAT bridge. The smolvm guest sits behind a second NAT layer, so reaching `llama-server` on the WSL2 host through `localhost` does not work without configuration. The legacy workaround was hardcoding the host gateway (`172.16.0.1`), which is fragile and changes between Windows updates.
+
+**Mirrored networking** is the supported fix. It makes the WSL2 host share the Windows network stack so `localhost` resolves the same from the host, the guest, and the Windows side.
+
+### Enable
+
+On Windows, open `%USERPROFILE%` (paste into File Explorer's address bar) and create or edit `.wslconfig`:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Then restart WSL from PowerShell (Admin):
+
+```powershell
+wsl --shutdown
+```
+
+Re-open your WSL terminal. Verify mirrored mode:
+
+```bash
+ip addr show eth0 | grep inet
+# In mirrored mode, you'll see Windows-side interfaces, not 172.x.x.x
+```
+
+### Verify the agent can reach the LLM
+
+With `llama-server` running on the host:
+
+```bash
+make machine-up
+make test-brain
+```
+
+Expected output:
+```
+── LLM Connection Test (port 8080, timeout 2000ms) ──
+
+  localhost              127.0.0.1        PASS (200)
+
+PASS: LLM is reachable.
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `localhost: TIMEOUT` | Mirrored mode not active | Re-check `.wslconfig`, run `wsl --shutdown`, re-open terminal |
+| `localhost: REFUSED` | llama-server not running | Start with `--host 0.0.0.0 --port 8080` |
+| Test hangs forever | Old `172.16.0.1` probe | Pull latest — that probe was removed |
+| `localhost: PASS` but agent fails | Wrong endpoint path | Agent appends `/v1/chat/completions` automatically; only set `LLM_URL` to base URL |
+
+Even with mirrored networking, **always start `llama-server` with `--host 0.0.0.0`**. Binding to `127.0.0.1` only is fragile and breaks if mirroring is later disabled.
+
+---
+
 ## Quick validation
 
 After installing everything:
@@ -217,14 +276,16 @@ After installing everything:
 ```bash
 cd pi-agent-smol
 
-# Build the image (uses Docker, no local Go/Bun needed)
-make build
+# Smolfile-based dev workflow (recommended):
+make machine-up        # Boot the dev VM (uses snapshot if available)
+make machine-init      # First-time package install (one-off, then snapshot)
+make machine-snapshot  # Cache the configured VM for fast future boots
+make test-brain        # Verify guest → host LLM connection
+make machine-run       # Start the agent
 
-# Run the 3 dry-run tests
-make test
-
-# Pack and test guest-to-host networking
-# (requires llama-server running on 0.0.0.0:8080)
-make pack
-make test-smol-net
+# OR full Docker pipeline:
+make build             # Build the OCI image
+make test              # Dry-run tests (chromium, go binary, tar)
+make pack              # Pack into a self-contained smolvm executable
+make test-smol-net     # End-to-end network test
 ```
