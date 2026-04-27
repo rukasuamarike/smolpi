@@ -21,6 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip git \
     neovim fzf ripgrep btop \
+    haveged \
     chromium \
     libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
@@ -51,4 +52,8 @@ RUN echo 'eval "$(zoxide init bash)"' >> /root/.bashrc && \
 ENV CHROME_BIN=/usr/bin/chromium
 ENV BROWSER_BIN=/usr/local/bin/browser_skill
 
+COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bun", "run", "agent/index.ts"]
