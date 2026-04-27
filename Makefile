@@ -8,9 +8,11 @@ LLM_PORT    := 8080
 REG_PORT    := 5000
 REG_NAME    := smol-registry
 REG_IMAGE   := localhost:$(REG_PORT)/$(IMAGE_NAME):$(FULL_TAG)
+VM_NAME     := pi-agent-dev
 
 # ── Build ────────────────────────────────────────────────────
-.PHONY: build run pack clean test-chromium test-go-binary test-tar test-smol-net registry-up registry-down
+.PHONY: build build-go run pack clean test-chromium test-go-binary test-tar test-smol-net \
+        registry-up registry-down machine-up machine-down machine-exec machine-run
 
 build:
 	docker buildx build --platform linux/$(ARCH) \
@@ -84,7 +86,35 @@ test-smol-net: pack
 test: test-chromium test-go-binary test-tar
 	@echo "==> All dry-run tests complete"
 
+# ── Smolfile dev machine ─────────────────────────────────────
+build-go:
+	@echo "==> Compiling browser_skill for linux/$(ARCH)..."
+	@mkdir -p bin
+	cd browser && CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH) \
+		go build -ldflags="-s -w" -o ../bin/browser_skill browser_skill.go
+
+machine-up: build-go
+	@if smolvm machine status --name $(VM_NAME) >/dev/null 2>&1; then \
+		echo "Machine $(VM_NAME) already exists. Use 'make machine-down' first to recreate."; \
+	else \
+		smolvm machine create -s Smolfile --name $(VM_NAME); \
+		echo "Created machine $(VM_NAME)"; \
+	fi
+	smolvm machine start --name $(VM_NAME)
+	@echo "Machine $(VM_NAME) is running. Use 'make machine-exec' for a shell."
+
+machine-exec:
+	smolvm machine exec --name $(VM_NAME) -it -- /bin/bash
+
+machine-run:
+	smolvm machine exec --name $(VM_NAME) -- bun run /app/agent/index.ts
+
+machine-down:
+	-smolvm machine stop --name $(VM_NAME) 2>/dev/null
+	-smolvm machine delete $(VM_NAME) 2>/dev/null
+
 # ── Cleanup ──────────────────────────────────────────────────
 clean:
 	rm -f $(IMAGE_NAME)-*.tar $(PACK_BIN) $(PACK_BIN).smolmachine
+	rm -rf bin/
 	-docker rmi $(IMAGE_NAME):$(FULL_TAG) $(REG_IMAGE) 2>/dev/null

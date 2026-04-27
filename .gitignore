@@ -3,3 +3,4 @@ pi-agent.smolmachine
 *.tar
 *.smol
 node_modules/
+bin/
