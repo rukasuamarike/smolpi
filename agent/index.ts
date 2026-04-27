@@ -36,12 +36,48 @@ async function browse(url: string): Promise<string> {
   return stdout;
 }
 
+async function shell(cmd: string): Promise<string> {
+  const proc = Bun.spawn(["bash", "-c", cmd], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  await proc.exited;
+  let out = stdout.trim();
+  if (stderr.trim()) out += `\n[stderr]\n${stderr.trim()}`;
+  // Cap to 4000 chars to protect ctx
+  if (out.length > 4000) out = out.slice(0, 4000) + "\n…[truncated]";
+  return out;
+}
+
 async function agentLoop() {
   const systemPrompt: Message = {
     role: "system",
-    content: `You are a minimal coding agent running in a MicroVM.
-You can browse URLs — the result is an accessibility tree (JSON).
-Respond with actions: [browse:URL] or [done].`,
+    content: `You are a coding agent running inside a Debian MicroVM with these tools:
+
+BROWSING:
+  [browse:URL]  — fetch a URL and receive Markdown (title, interactive
+                  elements, main content). Use for web research.
+
+SHELL TOOLS (for file/code work — already installed in /usr/bin):
+  rg <pattern>        — ripgrep, fast recursive grep (use over grep)
+  fd <pattern>        — fast file finder (use over find)
+  jq <filter>         — JSON parsing/transformation
+  bat <file>          — syntax-highlighted file viewer
+  nvim <file>         — editor
+
+When you need shell commands, emit them as: [sh:COMMAND]
+
+Examples:
+  [sh:rg "TODO" /app]                      find TODOs
+  [sh:fd -e ts /app/agent]                 find .ts files
+  [sh:jq '.elements[0]' page.json]         extract first element
+  [browse:https://github.com/user/repo]    fetch a page
+
+Respond with one action per turn, or [done] when finished.`,
   };
 
   const messages: Message[] = [systemPrompt];
@@ -67,10 +103,21 @@ Respond with actions: [browse:URL] or [done].`,
     messages.push({ role: "assistant", content: reply });
 
     const browseMatch = reply.match(/\[browse:(.*?)\]/);
+    const shMatch = reply.match(/\[sh:(.*?)\]/);
+
+    let toolResult: string | null = null;
+    let toolLabel = "";
     if (browseMatch) {
-      console.log(`Browsing: ${browseMatch[1]}`);
-      const tree = await browse(browseMatch[1]);
-      messages.push({ role: "user", content: `Accessibility tree:\n${tree}` });
+      toolLabel = `Browsing: ${browseMatch[1]}`;
+      toolResult = await browse(browseMatch[1].trim());
+    } else if (shMatch) {
+      toolLabel = `$ ${shMatch[1]}`;
+      toolResult = await shell(shMatch[1].trim());
+    }
+
+    if (toolResult !== null) {
+      console.log(toolLabel);
+      messages.push({ role: "user", content: `Tool output:\n${toolResult}` });
       const followUp = await llm(messages);
       messages.push({ role: "assistant", content: followUp });
       console.log(followUp);

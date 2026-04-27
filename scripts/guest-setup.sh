@@ -1,10 +1,10 @@
 #!/bin/sh
 set -e
 
-echo "[1/4] Updating apt..."
+echo "[1/5] Updating apt..."
 apt-get update
 
-echo "[2/4] Installing packages..."
+echo "[2/5] Installing packages..."
 apt-get install -y --no-install-recommends \
     ca-certificates curl unzip \
     chromium \
@@ -12,19 +12,67 @@ apt-get install -y --no-install-recommends \
     libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
     libxrandr2 libgbm1 libasound2 libpango-1.0-0 \
     libcairo2 \
-    neovim fzf ripgrep btop haveged
+    neovim fzf ripgrep btop haveged \
+    bat fd-find jq
 rm -rf /var/lib/apt/lists/*
 
-echo "[3/4] Installing bun..."
+echo "[3/5] Installing bun..."
 if ! command -v bun >/dev/null 2>&1; then
     curl -fsSL https://bun.sh/install | bash
     ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 fi
 
-echo "[4/4] Verifying..."
-echo "  bun:            $(bun --version 2>/dev/null || echo 'MISSING')"
-echo "  chromium:       $(which chromium 2>/dev/null || echo 'MISSING')"
-echo "  browser_skill:  $(ls /app/bin/browser_skill 2>/dev/null || echo 'MISSING')"
-echo "  agent:          $(ls /app/agent/index.ts 2>/dev/null || echo 'MISSING')"
+echo "[3.5/5] Installing zoxide..."
+if ! command -v zoxide >/dev/null 2>&1; then
+    curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+    [ -x /root/.local/bin/zoxide ] && ln -sf /root/.local/bin/zoxide /usr/local/bin/zoxide
+fi
+
+echo "[4/5] Linking Debian-renamed binaries..."
+# bat → batcat, fd → fdfind on Debian
+[ -x /usr/bin/batcat ] && ln -sf /usr/bin/batcat /usr/local/bin/bat
+[ -x /usr/bin/fdfind ] && ln -sf /usr/bin/fdfind /usr/local/bin/fd
+
+echo "[4.5/5] Configuring bash environment..."
+cat > /root/.bashrc.smol <<'EOF'
+# pi-agent-smol bash environment
+export HISTSIZE=50000
+export HISTFILESIZE=100000
+export HISTCONTROL=ignoredups:erasedups
+export HISTTIMEFORMAT='%F %T '
+shopt -s histappend cmdhist 2>/dev/null
+
+# Keep history across sessions
+PROMPT_COMMAND='history -a; history -c; history -r'
+
+# zoxide (smart cd)
+command -v zoxide >/dev/null && eval "$(zoxide init bash)"
+
+# Aliases
+alias ll='ls -la'
+alias cat='bat --paging=never --style=plain'
+alias find='fd'
+
+# Path additions
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+EOF
+
+# Idempotent: only source-line once
+grep -q '\.bashrc\.smol' /root/.bashrc 2>/dev/null || \
+    echo '[ -f ~/.bashrc.smol ] && . ~/.bashrc.smol' >> /root/.bashrc
+
+echo "[5/5] Verifying..."
+printf "  %-15s %s\n" "bun:"           "$(bun --version 2>/dev/null || echo 'MISSING')"
+printf "  %-15s %s\n" "chromium:"      "$(command -v chromium || echo 'MISSING')"
+printf "  %-15s %s\n" "rg:"            "$(rg --version 2>/dev/null | head -1 || echo 'MISSING')"
+printf "  %-15s %s\n" "fd:"            "$(fd --version 2>/dev/null || echo 'MISSING')"
+printf "  %-15s %s\n" "bat:"           "$(bat --version 2>/dev/null || echo 'MISSING')"
+printf "  %-15s %s\n" "fzf:"           "$(fzf --version 2>/dev/null || echo 'MISSING')"
+printf "  %-15s %s\n" "jq:"            "$(jq --version 2>/dev/null || echo 'MISSING')"
+printf "  %-15s %s\n" "zoxide:"        "$(zoxide --version 2>/dev/null || echo 'MISSING')"
+printf "  %-15s %s\n" "nvim:"          "$(nvim --version 2>/dev/null | head -1 || echo 'MISSING')"
+printf "  %-15s %s\n" "btop:"          "$(command -v btop || echo 'MISSING')"
+printf "  %-15s %s\n" "browser_skill:" "$(ls /app/bin/browser_skill 2>/dev/null || echo 'MISSING')"
+printf "  %-15s %s\n" "agent:"         "$(ls /app/agent/index.ts 2>/dev/null || echo 'MISSING')"
 echo ""
-echo "Guest setup complete."
+echo "Guest setup complete. Open a new shell or 'source ~/.bashrc' to pick up env changes."
